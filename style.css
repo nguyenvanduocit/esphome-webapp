@@ -8,6 +8,7 @@
 
 /* Connection status bar */
 #connection-status {
+  position: static;
   top: 0;
   left: 0;
   width: 100%;
@@ -50,7 +51,6 @@
 }
 
 .humidity {
-  background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
   color: #444;
 }
 

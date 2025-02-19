@@ -1,13 +1,7 @@
 import './style.css'
+import createMqttService from './mqttService.js';
 
-// Default MQTT configuration
-const DEFAULT_CONFIG = {
-  brokerUrl: "broker.emqx.io",
-  port: 8084,
-  useSSL: true,
-  clientId: "vue-client-" + Math.random().toString(36).substring(7),
-  topic: "projects/pandashouse/devices/+/sensor/#",
-};
+
 
 // Helper to update connection status in the DOM
 const updateConnectionStatus = (status) => {
@@ -18,128 +12,12 @@ const updateConnectionStatus = (status) => {
   }
 };
 
-// MQTT Service implementation without reactive state
-const createMqttService = (config = {}) => {
-  let client = null;
-  let messageHandlers = [];
-
-  // Merge provided config with defaults
-  const mqttConfig = { ...DEFAULT_CONFIG, ...config };
-
-  const setupClient = () => {
-    client = new Paho.Client(
-      mqttConfig.brokerUrl,
-      Number(mqttConfig.port),
-      mqttConfig.clientId
-    );
-
-    client.onConnectionLost = (responseObject) => {
-      console.log("Connection Lost: " + responseObject.errorMessage);
-      updateConnectionStatus("disconnected");
-      mqttConfig.callbacks?.onConnectionLost?.(responseObject);
-      // Auto-reconnect after a delay
-      setTimeout(() => {
-        console.log("Attempting to reconnect...");
-        connect();
-      }, 5000);
-    };
-
-    client.onMessageArrived = (message) => {
-      messageHandlers.forEach((handler) => handler(message));
-      mqttConfig.callbacks?.onMessageArrived?.(message);
-    };
-  };
-
-  const connect = () => {
-    if (!client) {
-      setupClient();
-    }
-
-    updateConnectionStatus("connecting");
-    client.connect({
-      onSuccess: () => {
-        console.log("Connected to MQTT broker");
-        updateConnectionStatus("connected");
-        client.subscribe(mqttConfig.topic);
-        mqttConfig.callbacks?.onConnect?.();
-      },
-      onFailure: (error) => {
-        console.error("Failed to connect to MQTT:", error);
-        updateConnectionStatus("disconnected");
-        mqttConfig.callbacks?.onConnectionFailed?.(error);
-        // Auto-retry connection after a delay
-        setTimeout(() => {
-          console.log("Retrying connection...");
-          connect();
-        }, 5000);
-      },
-      useSSL: mqttConfig.useSSL,
-    });
-  };
-
-  const disconnect = () => {
-    if (client && client.isConnected()) {
-      client.disconnect();
-    }
-  };
-
-  const publish = (topic, message, qos = 0, retained = false) => {
-    if (client && client.isConnected()) {
-      const mqttMessage = new Paho.Message(message);
-      mqttMessage.destinationName = topic;
-      mqttMessage.qos = qos;
-      mqttMessage.retained = retained;
-      client.send(mqttMessage);
-    } else {
-      console.error("Cannot publish: client is not connected");
-    }
-  };
-
-  const subscribe = (topic, qos = 0) => {
-    if (client && client.isConnected()) {
-      client.subscribe(topic, { qos });
-    } else {
-      console.error("Cannot subscribe: client is not connected");
-    }
-  };
-
-  const unsubscribe = (topic) => {
-    if (client && client.isConnected()) {
-      client.unsubscribe(topic);
-    } else {
-      console.error("Cannot unsubscribe: client is not connected");
-    }
-  };
-
-  const addMessageHandler = (handler) => {
-    messageHandlers.push(handler);
-  };
-
-  const removeMessageHandler = (handler) => {
-    const index = messageHandlers.indexOf(handler);
-    if (index > -1) {
-      messageHandlers.splice(index, 1);
-    }
-  };
-
-  const isConnected = () => {
-    return client?.isConnected() || false;
-  };
-
-  return {
-    connect,
-    disconnect,
-    publish,
-    subscribe,
-    unsubscribe,
-    addMessageHandler,
-    removeMessageHandler,
-    isConnected,
-  };
-};
-
-// Create a singleton instance
-const mqttService = createMqttService();
+// Create a singleton instance with callbacks
+const mqttService = createMqttService({
+  callbacks: {
+    onStatusChange: updateConnectionStatus
+  }
+});
 
 // Constants for device status handling
 const EXCLUDED_SENSORS = [
@@ -150,41 +28,129 @@ const EXCLUDED_SENSORS = [
   "wifi_signal",
   "uptime",
   "uptime_sensor",
-
 ];
 
 // Create a Map to store sensor elements
 const sensorElements = new Map();
 
-// Add this function after the constants
+// Improved temperature gradient function with clearer logic and named ranges
 const getTemperatureGradient = (temperature) => {
-  // Convert temperature to a value between 0 and 1
-  // Assuming temperature range from -10°C to 40°C
-  const normalizedTemp = (parseFloat(temperature) + 10) / 50;
-  
-  // Generate colors for cold, neutral, and warm temperatures
-  const cold = [155, 200, 255];    // Light blue
-  const neutral = [255, 230, 180];  // Light orange
-  const warm = [255, 100, 100];     // Warm red
-  
+  const temp = parseFloat(temperature);
+
+  const colorRanges = {
+    superCool: { color: [100, 200, 255], maxTemp: 24 }, // Light blue
+    cool: { color: [155, 200, 255], maxTemp: 25 },      // Blue
+    perfect: { color: [150, 255, 150], maxTemp: 28 },    // Green
+    warm: { color: [255, 200, 100], maxTemp: 30 },       // Orange
+    hot: { color: [255, 100, 100], maxTemp: Infinity },   // Red
+  };
+
   let color1, color2;
-  
-  if (normalizedTemp <= 0.5) {
-    // Interpolate between cold and neutral
-    const factor = normalizedTemp * 2;
-    color1 = cold.map((c, i) => Math.round(c + (neutral[i] - c) * factor));
-    color2 = cold.map((c, i) => Math.round(c + (neutral[i] - c) * (factor + 0.2)));
-  } else {
-    // Interpolate between neutral and warm
-    const factor = (normalizedTemp - 0.5) * 2;
-    color1 = neutral.map((c, i) => Math.round(c + (warm[i] - c) * factor));
-    color2 = neutral.map((c, i) => Math.round(c + (warm[i] - c) * (factor + 0.2)));
-  }
-  
+  let range1, range2;
+
+ for (const rangeKey in colorRanges) {
+        const range = colorRanges[rangeKey];
+        if (temp <= range.maxTemp) {
+            range1 = range;
+            // Find previous range, with handling of the first range
+            const rangeKeys = Object.keys(colorRanges);
+            const index = rangeKeys.indexOf(rangeKey);
+            if(index > 0){
+                range2 = colorRanges[rangeKeys[index-1]];
+            } else {
+              range2 = range1; //If current range is the first range
+            }
+            break;
+        }
+    }
+
+    if(range1 === range2){ // if we in the same range use same color
+        color1 = range1.color;
+        color2 = range1.color;
+    } else { //if in different range, calculate color transition
+        const factor = (temp - range2.maxTemp) / (range1.maxTemp - range2.maxTemp);
+        color1 = range2.color.map((c, i) => Math.round(c + (range1.color[i] - c) * factor));
+        color2 = range2.color.map((c, i) => Math.round(c + (range1.color[i] - c) * (factor + 0.2)));
+    }
+
   return `linear-gradient(135deg, rgb(${color1.join(',')}) 0%, rgb(${color2.join(',')}) 100%)`;
 };
 
-// Update the updateSensor function
+// Improved humidity gradient function
+const getHumidityGradient = (humidity) => {
+  const hum = parseFloat(humidity);
+
+  const humidityRanges = {
+    tooLow: { color: [255, 150, 150], maxHum: 30 },    // Light red
+    low: { color: [255, 200, 150], maxHum: 40 },       // Light orange
+    perfect: { color: [150, 255, 150], maxHum: 50 },   // Green
+    high: { color: [150, 200, 255], maxHum: 60 },      // Light blue
+    tooHigh: { color: [100, 150, 255], maxHum: 70 },   // Blue
+    extreme: { color: [100, 150, 255], maxHum: Infinity }, // Blue for extreme humidity
+  };
+
+  let color1, color2;
+  let range1, range2;
+
+  for (const rangeKey in humidityRanges) {
+    const range = humidityRanges[rangeKey];
+        if (hum <= range.maxHum) {
+            range1 = range;
+             // Find previous range, with handling of the first range
+            const rangeKeys = Object.keys(humidityRanges);
+            const index = rangeKeys.indexOf(rangeKey);
+            if(index > 0){
+                range2 = humidityRanges[rangeKeys[index-1]];
+            } else {
+              range2 = range1; //If current range is the first range
+            }
+            break;
+        }
+    }
+
+  if (range1 === range2) {
+    color1 = range1.color;
+    color2 = range1.color;
+  } else {
+    const factor = (hum - range2.maxHum) / (range1.maxHum - range2.maxHum);
+    color1 = range2.color.map((c, i) => Math.round(c + (range1.color[i] - c) * factor));
+    color2 = range2.color.map((c, i) => Math.round(c + (range1.color[i] - c) * (factor + 0.2)));
+  }
+
+  return `linear-gradient(135deg, rgb(${color1.join(',')}) 0%, rgb(${color2.join(',')}) 100%)`;
+};
+
+// Sensor icon mapping
+const SENSOR_ICONS = {
+  temperature: '🌡️',
+  humidity: '💧',
+  default: '📊'
+};
+
+// Time intervals for time ago calculation
+const INTERVALS = [
+  { label: 'year', seconds: 31536000 },
+  { label: 'month', seconds: 2592000 },
+  { label: 'day', seconds: 86400 },
+  { label: 'hour', seconds: 3600 },
+  { label: 'minute', seconds: 60 },
+  { label: 'second', seconds: 1 }
+];
+
+// Utility function to format time ago
+const getTimeAgo = (date) => {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+
+  for (let interval of INTERVALS) {
+    const count = Math.floor(seconds / interval.seconds);
+    if (count > 0) {
+      return `${count} ${interval.label}${count !== 1 ? 's' : ''} ago`;
+    }
+  }
+  return 'just now';
+};
+
+// Update sensor display
 const updateSensor = (sensor) => {
   const elementId = `${sensor.deviceId}-${sensor.sensorType}`;
   let sensorDiv = sensorElements.get(elementId);
@@ -194,32 +160,47 @@ const updateSensor = (sensor) => {
     sensorDiv.className = 'sensor';
     sensorDiv.id = elementId;
     document.querySelector('#sensors').appendChild(sensorDiv);
-    sensorElements.set(elementId, sensorDiv); 
+    sensorElements.set(elementId, sensorDiv);
   }
 
-  // Generate background gradient for temperature sensors
-  const backgroundStyle = sensor.sensorType.toLowerCase() === 'temperature' 
-    ? `style="background: ${getTemperatureGradient(sensor.value)}"` 
-    : `class="${sensor.sensorType.toLowerCase()}"`;
+  const sensorType = sensor.sensorType.toLowerCase();
+  let backgroundStyle = '';
+
+  if (sensorType === 'temperature') {
+    backgroundStyle = `background: ${getTemperatureGradient(sensor.value)};`;
+  } else if (sensorType === 'humidity') {
+    backgroundStyle = `background: ${getHumidityGradient(sensor.value)};`;
+  }
 
   sensorDiv.innerHTML = `
-    <div class="sensor-card ${sensor.sensorType.toLowerCase()}" ${backgroundStyle}>
+    <div class="sensor-card ${sensorType}" style="${backgroundStyle}">
       <div class="sensor-icon">
-        ${sensor.sensorType.toLowerCase() === 'temperature' ? '🌡️' : '💧'}
+        ${SENSOR_ICONS[sensorType] || SENSOR_ICONS.default}
       </div>
       <div class="sensor-content">
         <div class="sensor-value">
-          ${sensor.value}${sensor.sensorType.toLowerCase() === 'temperature' ? '°C' : '%'}
+          ${sensor.value}${sensorType === 'temperature' ? '°C' : '%'}
         </div>
         <div class="sensor-type">${sensor.sensorType}</div>
         <div class="sensor-device">${sensor.deviceId}</div>
-        <div class="sensor-timestamp">Updated: ${new Date(sensor.timestamp).toLocaleTimeString()}</div>
+        <div class="sensor-timestamp" data-timestamp="${sensor.timestamp}">${getTimeAgo(sensor.timestamp)}</div>
       </div>
     </div>
   `;
 };
 
-// Simplify the HTML template
+// Update all timestamps every second
+const updateAllTimestamps = () => {
+  document.querySelectorAll('.sensor-timestamp').forEach(timestampElement => {
+    const timestamp = timestampElement.dataset.timestamp;
+    if (timestamp) {
+      timestampElement.textContent = getTimeAgo(timestamp);
+    }
+  });
+};
+setInterval(updateAllTimestamps, 1000);
+
+// Simplified HTML template
 document.querySelector('#app').innerHTML = `
   <div>
     <div id="connection-status">Connection Status: <span>Connecting...</span></div>
@@ -227,13 +208,11 @@ document.querySelector('#app').innerHTML = `
   </div>
 `;
 
-// Simplify message handling
+// Handle incoming MQTT messages
 const handleMessage = (message) => {
   const topicParts = message.destinationName.split("/");
   const deviceId = topicParts[3];
   const sensorType = topicParts[5];
-
-  console.log(message);
 
   if (EXCLUDED_SENSORS.includes(sensorType)) return;
 
@@ -245,6 +224,6 @@ const handleMessage = (message) => {
   });
 };
 
-// Initialize MQTT service with message handler and connect
+// Initialize MQTT service and connect
 mqttService.addMessageHandler(handleMessage);
 mqttService.connect();
