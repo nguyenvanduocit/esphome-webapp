@@ -1,0 +1,5 @@
+This is a webapp for a smart home. Subscribe to MQTT Topics and display the data in a dashboard.
+
+The dashboard should have the following sections:
+- Temperature
+- Humidity
