@@ -149,12 +149,42 @@ const EXCLUDED_SENSORS = [
   "esphome_version",
   "wifi_signal",
   "uptime",
+  "uptime_sensor",
 
 ];
 
 // Create a Map to store sensor elements
 const sensorElements = new Map();
 
+// Add this function after the constants
+const getTemperatureGradient = (temperature) => {
+  // Convert temperature to a value between 0 and 1
+  // Assuming temperature range from -10°C to 40°C
+  const normalizedTemp = (parseFloat(temperature) + 10) / 50;
+  
+  // Generate colors for cold, neutral, and warm temperatures
+  const cold = [155, 200, 255];    // Light blue
+  const neutral = [255, 230, 180];  // Light orange
+  const warm = [255, 100, 100];     // Warm red
+  
+  let color1, color2;
+  
+  if (normalizedTemp <= 0.5) {
+    // Interpolate between cold and neutral
+    const factor = normalizedTemp * 2;
+    color1 = cold.map((c, i) => Math.round(c + (neutral[i] - c) * factor));
+    color2 = cold.map((c, i) => Math.round(c + (neutral[i] - c) * (factor + 0.2)));
+  } else {
+    // Interpolate between neutral and warm
+    const factor = (normalizedTemp - 0.5) * 2;
+    color1 = neutral.map((c, i) => Math.round(c + (warm[i] - c) * factor));
+    color2 = neutral.map((c, i) => Math.round(c + (warm[i] - c) * (factor + 0.2)));
+  }
+  
+  return `linear-gradient(135deg, rgb(${color1.join(',')}) 0%, rgb(${color2.join(',')}) 100%)`;
+};
+
+// Update the updateSensor function
 const updateSensor = (sensor) => {
   const elementId = `${sensor.deviceId}-${sensor.sensorType}`;
   let sensorDiv = sensorElements.get(elementId);
@@ -167,8 +197,13 @@ const updateSensor = (sensor) => {
     sensorElements.set(elementId, sensorDiv); 
   }
 
+  // Generate background gradient for temperature sensors
+  const backgroundStyle = sensor.sensorType.toLowerCase() === 'temperature' 
+    ? `style="background: ${getTemperatureGradient(sensor.value)}"` 
+    : `class="${sensor.sensorType.toLowerCase()}"`;
+
   sensorDiv.innerHTML = `
-    <div class="sensor-card ${sensor.sensorType.toLowerCase()}">
+    <div class="sensor-card ${sensor.sensorType.toLowerCase()}" ${backgroundStyle}>
       <div class="sensor-icon">
         ${sensor.sensorType.toLowerCase() === 'temperature' ? '🌡️' : '💧'}
       </div>
@@ -187,7 +222,6 @@ const updateSensor = (sensor) => {
 // Simplify the HTML template
 document.querySelector('#app').innerHTML = `
   <div>
-    <h1>Pandas House</h1>
     <div id="connection-status">Connection Status: <span>Connecting...</span></div>
     <div id="sensors"></div>
   </div>
