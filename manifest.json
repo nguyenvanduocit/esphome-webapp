@@ -1,6 +1,6 @@
 {
-  "name": "Smart Home Dashboard",
-  "short_name": "SmartHome",
+  "name": "Pandas House",
+  "short_name": "PandasHouse",
   "description": "Monitor your home's temperature and humidity data",
   "start_url": "/",
   "display": "standalone",
