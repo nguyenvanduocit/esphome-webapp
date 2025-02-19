@@ -148,6 +148,8 @@ const EXCLUDED_SENSORS = [
   "bssid",
   "esphome_version",
   "wifi_signal",
+  "uptime",
+
 ];
 
 // Create a Map to store sensor elements
@@ -166,10 +168,19 @@ const updateSensor = (sensor) => {
   }
 
   sensorDiv.innerHTML = `
-    <div class="sensor-device">Device: ${sensor.deviceId}</div>
-    <div class="sensor-type">Sensor: ${sensor.sensorType}</div>
-    <div class="sensor-value">Value: ${sensor.value}</div>
-    <div class="sensor-timestamp">Last Updated: ${new Date(sensor.timestamp).toLocaleTimeString()}</div>
+    <div class="sensor-card ${sensor.sensorType.toLowerCase()}">
+      <div class="sensor-icon">
+        ${sensor.sensorType.toLowerCase() === 'temperature' ? '🌡️' : '💧'}
+      </div>
+      <div class="sensor-content">
+        <div class="sensor-value">
+          ${sensor.value}${sensor.sensorType.toLowerCase() === 'temperature' ? '°C' : '%'}
+        </div>
+        <div class="sensor-type">${sensor.sensorType}</div>
+        <div class="sensor-device">${sensor.deviceId}</div>
+        <div class="sensor-timestamp">Updated: ${new Date(sensor.timestamp).toLocaleTimeString()}</div>
+      </div>
+    </div>
   `;
 };
 
